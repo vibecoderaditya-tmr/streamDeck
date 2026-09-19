@@ -107,35 +107,12 @@
     window.history.replaceState(null, "", qs ? "?" + qs : window.location.pathname);
   }
 
-  /* ── PIN ───────────────────────────────────────────────────── */
+  /* ── PIN (removed on deck — open access; admin page still PIN-protected) ── */
   function initPin() {
+    unlocked = true;
     const overlay = $("#pin-overlay");
-    const input = $("#pin-input");
-    const btn = $("#pin-btn");
-    const err = $("#pin-err");
-
-    if (sessionStorage.getItem("dk_unlocked")) {
-      overlay.classList.add("dk-hidden");
-      unlocked = true;
-      initApp();
-      return;
-    }
-
-    btn.addEventListener("click", () => {
-      if (input.value === PIN_CODE) {
-        unlocked = true;
-        sessionStorage.setItem("dk_unlocked", "1");
-        overlay.classList.add("dk-hidden");
-        initApp();
-      } else {
-        err.textContent = "Incorrect PIN";
-        input.value = "";
-        input.focus();
-      }
-    });
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") btn.click();
-    });
+    if (overlay) overlay.classList.add("dk-hidden");
+    initApp();
   }
 
   /* ── Init App ──────────────────────────────────────────────── */
