@@ -238,17 +238,22 @@
       updateEditor();
     });
 
-    fbDb.ref("status/connected").on("value", (snap) => {
-      const connected = snap.val();
+    // Liveness check: bridge writes status/heartbeat every ~2s.
+    // If heartbeat is stale (>10s) the EXE is dead/killed even when
+    // connected=true was left behind by a crash.
+    function updateConnBadge() {
       const badge = $("#adm-conn-status");
-      if (badge) {
-        badge.textContent = connected ? "Connected" : "Disconnected";
-        badge.className = "adm-badge " + (connected ? "adm-badge-connected" : "adm-badge-disconnected");
-      }
-    });
+      if (!badge) return;
+      const age = Date.now() - (status.heartbeat || 0);
+      const alive = !!status.connected && (status.heartbeat || 0) > 0 && age < 10000;
+      badge.textContent = alive ? "Connected" : "Disconnected";
+      badge.className = "adm-badge " + (alive ? "adm-badge-connected" : "adm-badge-disconnected");
+    }
+    setInterval(updateConnBadge, 2000);
 
     fbDb.ref("status").on("value", (snap) => {
       status = snap.val() || {};
+      updateConnBadge();
       if (selectedKey) updateEditor();
     });
   }
