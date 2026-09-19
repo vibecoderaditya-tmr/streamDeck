@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OBS Admin</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="admin-body">
+
+  <div id="pin-overlay" class="pin-overlay">
+    <div class="pin-box">
+      <h2>OBS Admin</h2>
+      <p>Enter PIN to continue</p>
+      <input type="password" id="pin-input" maxlength="8" placeholder="PIN" autocomplete="off" />
+      <button id="pin-btn">Unlock</button>
+      <p id="pin-err" class="pin-err"></p>
+    </div>
+  </div>
+
+  <div id="app-screen" class="admin-layout dk-hidden">
+    <div class="admin-topbar">
+      <div class="admin-brand">OBS Admin</div>
+      <div class="admin-status">
+        <span id="adm-conn-status" class="adm-badge adm-badge-disconnected">Disconnected</span>
+        <a href="index.html" class="admin-deck-link" target="_blank">Open Deck</a>
+      </div>
+    </div>
+
+    <div class="admin-main">
+      <div class="left-panel">
+        <div class="grid-toolbar">
+          <button id="tb-copy" class="tb-btn" title="Copy (Ctrl+C)">📋</button>
+          <button id="tb-paste" class="tb-btn" title="Paste (Ctrl+V)">📄</button>
+          <button id="tb-move" class="tb-btn" title="Move">✋</button>
+          <button id="tb-swap" class="tb-btn" title="Swap">🔄</button>
+          <button id="tb-delete" class="tb-btn" title="Delete (Del)">🗑️</button>
+          <button id="tb-reset" class="tb-btn" title="Reset Tile">🔄</button>
+          <button id="tb-wipe" class="tb-btn tb-btn-danger" title="Wipe All">⚠️</button>
+        </div>
+        <div id="grid" class="admin-grid"></div>
+        <div class="page-nav">
+          <button id="pg-prev" class="pg-btn" title="Previous Page (PageUp)">◀</button>
+          <span id="pg-label" class="pg-label">Page 1</span>
+          <button id="pg-next" class="pg-btn" title="Next Page (PageDown)">▶</button>
+          <button id="pg-add" class="pg-btn pg-add" title="Add Page">+</button>
+        </div>
+        <div class="admin-help">
+          <strong>Shortcuts:</strong> Arrow keys to move • Delete to clear • Ctrl+C copy • Ctrl+V paste • PageUp/Down pages • Escape deselect
+        </div>
+      </div>
+
+      <div class="right-panel">
+        <div class="top-tabs">
+          <button class="top-tab active" data-tab="editor">Edit Button</button>
+          <button class="top-tab" data-tab="pages">Pages</button>
+          <button class="top-tab" data-tab="presets">Presets</button>
+        </div>
+
+        <div id="tab-editor" class="tab-content active">
+          <div id="editor-empty" class="editor-empty">
+            <p>No button selected.</p>
+            <p>Click a tile on the grid to edit it.</p>
+          </div>
+          <div id="editor-assigned" class="editor-assigned dk-hidden">
+            <div class="editor-topbar">
+              <span id="editor-pos" class="editor-pos">0, 0</span>
+              <div class="editor-topbar-actions">
+                <button id="editor-dup" class="ed-btn" title="Duplicate">📋</button>
+                <button id="editor-clear" class="ed-btn" title="Clear">🗑️</button>
+              </div>
+            </div>
+
+            <div class="sub-tabs">
+              <button class="sub-tab active" data-subtab="step1">Step 1</button>
+              <button class="sub-tab" data-subtab="style">Style</button>
+              <button class="sub-tab" data-subtab="feedbacks">Feedbacks</button>
+            </div>
+
+            <div id="subtab-step1" class="subtab-content active">
+              <label class="ed-label">Label</label>
+              <input id="ed-label" class="ed-input" type="text" placeholder="Button label" />
+
+              <label class="ed-label">Icon</label>
+              <input id="ed-icon" class="ed-input" type="text" placeholder="Emoji or text" />
+              <div id="ed-icon-grid" class="icon-grid"></div>
+
+              <label class="ed-label">Actions</label>
+              <div id="ed-actions" class="ed-actions-list"></div>
+              <button id="ed-add-action" class="ed-add-btn">+ Add Action</button>
+            </div>
+
+            <div id="subtab-style" class="subtab-content">
+              <label class="ed-label">Background Color</label>
+              <input id="ed-bg" class="ed-input ed-color" type="color" value="#2a2a2a" />
+
+              <label class="ed-label">Text Color</label>
+              <input id="ed-color" class="ed-input ed-color" type="color" value="#ffffff" />
+
+              <label class="ed-label">Font Size</label>
+              <input id="ed-fontsize" class="ed-input ed-num" type="number" min="8" max="48" value="14" />
+
+              <div class="ed-preview-box">
+                <div id="ed-preview" class="ed-preview-tile">
+                  <span class="ed-preview-icon"></span>
+                  <span class="ed-preview-label">Button</span>
+                </div>
+              </div>
+            </div>
+
+            <div id="subtab-feedbacks" class="subtab-content">
+              <div id="ed-feedbacks" class="ed-feedbacks-list"></div>
+              <button id="ed-add-feedback" class="ed-add-btn">+ Add Feedback</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="tab-pages" class="tab-content">
+          <div id="pages-list" class="pages-list"></div>
+          <button id="pages-add" class="ed-add-btn">+ Add Page</button>
+        </div>
+
+        <div id="tab-presets" class="tab-content">
+          <input id="preset-search" class="ed-input" type="text" placeholder="Search presets..." />
+          <div id="presets-container" class="presets-container"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>

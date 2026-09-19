@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>OBS Deck</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="deck-body">
+
+  <div id="pin-overlay" class="pin-overlay">
+    <div class="pin-box">
+      <h2>OBS Deck</h2>
+      <p>Enter PIN to continue</p>
+      <input type="password" id="pin-input" maxlength="8" placeholder="PIN" autocomplete="off" />
+      <button id="pin-btn">Unlock</button>
+      <p id="pin-err" class="pin-err"></p>
+    </div>
+  </div>
+
+  <div id="app-screen" class="dk-hidden">
+    <div class="dk-top-icons">
+      <button id="dk-btn-fs" class="dk-btn dk-btn-fs" title="Fullscreen">⛶</button>
+      <button id="dk-btn-cfg" class="dk-btn dk-btn-cfg" title="Configure">⚙</button>
+    </div>
+
+    <div id="dk-headings" class="dk-headings"></div>
+    <div id="dk-grid" class="dk-grid"></div>
+
+    <div id="dk-page-nav" class="dk-page-nav"></div>
+  </div>
+
+  <div id="dk-cfg-overlay" class="dk-cfg-overlay dk-hidden">
+    <div class="dk-cfg-box">
+      <div class="dk-cfg-header">
+        <span>Configure Deck</span>
+        <button id="dk-cfg-close" class="dk-cfg-close">✕</button>
+      </div>
+      <div class="dk-cfg-body">
+        <label class="dk-cfg-label">Pages <span class="dk-cfg-hint">(comma-separated numbers, blank = all)</span></label>
+        <input id="cfg-pages" class="dk-cfg-input" type="text" placeholder="e.g. 0,1,3" />
+
+        <label class="dk-cfg-label">Min Columns</label>
+        <input id="cfg-mincol" class="dk-cfg-input dk-cfg-num" type="number" min="1" max="50" value="99" />
+
+        <label class="dk-cfg-label">Max Columns</label>
+        <input id="cfg-maxcol" class="dk-cfg-input dk-cfg-num" type="number" min="1" max="50" value="99" />
+
+        <label class="dk-cfg-label">Min Rows</label>
+        <input id="cfg-minrow" class="dk-cfg-input dk-cfg-num" type="number" min="1" max="50" value="99" />
+
+        <label class="dk-cfg-label">Max Rows</label>
+        <input id="cfg-maxrow" class="dk-cfg-input dk-cfg-num" type="number" min="1" max="50" value="99" />
+
+        <label class="dk-cfg-label">Columns to Display <span class="dk-cfg-hint">(0 = auto-fit)</span></label>
+        <input id="cfg-cols" class="dk-cfg-input dk-cfg-num" type="number" min="0" max="50" value="0" />
+
+        <label class="dk-cfg-check"><input id="cfg-hideconfig" type="checkbox" /> Hide Settings Button</label>
+        <label class="dk-cfg-check"><input id="cfg-hidefs" type="checkbox" /> Hide Fullscreen Button</label>
+        <label class="dk-cfg-check"><input id="cfg-showheadings" type="checkbox" checked /> Show Page Headings</label>
+      </div>
+      <div class="dk-cfg-footer">
+        <button id="dk-cfg-apply" class="dk-cfg-apply">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/deck.js"></script>
+</body>
+</html>
