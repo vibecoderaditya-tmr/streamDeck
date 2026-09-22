@@ -12,6 +12,11 @@
   let currentPageIdx = 0;
   let isFS = false;
   let unlocked = false;
+  const stepState = {}; // "pageId:key" -> current step index (Companion advance/latch)
+  const tileCooldown = {}; // panic-click guard: one fire per tile per 500ms
+  const TILE_COOLDOWN_MS = 500;
+  let btnRef = null; // per-page buttons subscription (avoids whole-tree downloads)
+  let btnPage = null;
 
   /* ── Settings (persisted as URL query params) ──────────────── */
   let cfgPages = [];
@@ -34,47 +39,19 @@
 
   function normalizeButton(btn, key) {
     if (!btn) return btn;
+    // Phase A: migrate old {actions,feedbacks} → {steps:[{actions,feedbacks}]}
+    if (typeof OBS_DEFS !== "undefined" && OBS_DEFS.migrateButton) {
+      const m = OBS_DEFS.migrateButton(btn, key);
+      m.actions = OBS_DEFS.flatActions(m);
+      m.feedbacks = OBS_DEFS.flatFeedbacks(m);
+      return m;
+    }
     const out = { ...btn, id: btn.id || key };
-
-    if (!out.actions || !Array.isArray(out.actions)) {
-      out.actions = [];
-      if (btn.action) {
-        const act = { type: btn.action, params: {} };
-        if (btn.scene) act.params.scene = btn.scene;
-        else if (btn.value) act.params.scene = btn.value;
-        if (btn.source) act.params.source = btn.source;
-        if (btn.scene && btn.itemId !== undefined) {
-          act.params.scene = btn.scene;
-          act.params.itemId = btn.itemId;
-        }
-        out.actions.push(act);
-      }
-    }
-
-    if (!out.feedbacks || !Array.isArray(out.feedbacks)) {
-      out.feedbacks = [];
-      if (btn.feedback) {
-        const fb = { type: btn.feedback.type || btn.feedback, params: {}, activeColor: btn.feedback.activeColor || "green" };
-        if (btn.feedback.scene) fb.params.scene = btn.feedback.scene;
-        else if (btn.scene) fb.params.scene = btn.scene;
-        else if (btn.value) fb.params.scene = btn.value;
-        if (btn.feedback.rules && Array.isArray(btn.feedback.rules)) {
-          btn.feedback.rules.forEach((r) => {
-            const fbr = { type: r.type || r.feedback, params: {}, activeColor: r.activeColor || "green" };
-            if (r.scene) fbr.params.scene = r.scene;
-            else if (r.value) fbr.params.scene = r.value;
-            out.feedbacks.push(fbr);
-          });
-        } else {
-          out.feedbacks.push(fb);
-        }
-      }
-    }
-
+    if (!out.actions || !Array.isArray(out.actions)) out.actions = [];
+    if (!out.feedbacks || !Array.isArray(out.feedbacks)) out.feedbacks = [];
     if (!out.style) out.style = {};
     if (!out.icon) out.icon = "";
     if (!out.label) out.label = "";
-
     return out;
   }
 
@@ -153,21 +130,53 @@
       return;
     }
 
+    // Flat listeners: pages (tiny) + status (live feedbacks). Buttons are
+    // subscribed per visible page only, so the deck never downloads the
+    // whole multi-page tree on every small edit.
     fbDb.ref("pages").on("value", (snap) => {
       pages = snap.val() || {};
       buildPageOrder();
-      renderGrid();
+      subscribeButtons();
       renderPageNav();
     });
 
-    fbDb.ref("buttons").on("value", (snap) => {
-      buttons = snap.val() || {};
-      renderGrid();
-    });
+    let lastSeenErrTs = 0;
+    let errTimer = null;
 
     fbDb.ref("status").on("value", (snap) => {
       status = snap.val() || {};
       updateHighlights();
+      // Toast bridge errors (e.g. renamed/deleted source) so the director sees them
+      const le = status.lastError || {};
+      if (le.ts && le.ts !== lastSeenErrTs && le.message) {
+        lastSeenErrTs = le.ts;
+        let toast = document.getElementById("dk-err-toast");
+        if (!toast) {
+          toast = document.createElement("div");
+          toast.id = "dk-err-toast";
+          toast.className = "dk-err-toast";
+          document.body.appendChild(toast);
+        }
+        toast.textContent = "⚠ " + le.message;
+        toast.style.display = "block";
+        if (errTimer) clearTimeout(errTimer);
+        errTimer = setTimeout(() => { toast.style.display = "none"; }, 5000);
+      }
+    });
+  }
+
+  function subscribeButtons() {
+    if (typeof fbDb === "undefined" || !fbDb) return;
+    const pid = getCurrentPageId();
+    if (pid === btnPage) return;
+    if (btnRef) { try { btnRef.off(); } catch (e) {} }
+    btnPage = pid;
+    buttons = {};
+    if (!pid) { renderGrid(); return; }
+    btnRef = fbDb.ref("buttons/" + pid);
+    btnRef.on("value", (snap) => {
+      buttons[pid] = snap.val() || {};
+      renderGrid();
     });
   }
 
@@ -237,6 +246,9 @@
           const color = nb.style?.color || "#fff";
           div.style.background = bg;
           div.style.color = color;
+          div.style.fontWeight = nb.style?.fontWeight || "normal";
+          div.style.border = "1px solid " + (nb.style?.border || "#222");
+          div.style.fontSize = (nb.style?.fontSize || 14) + "px";
 
           if (nb.icon) {
             const iconSpan = document.createElement("span");
@@ -250,8 +262,26 @@
             lbl.textContent = nb.label;
             div.appendChild(lbl);
           }
+          // Show step dots when multi-step (Companion-style)
+          const _m = (typeof OBS_DEFS !== "undefined" && OBS_DEFS.migrateButton) ? OBS_DEFS.migrateButton(btnCfg, key) : null;
+          if (_m && _m.steps && _m.steps.length > 1) {
+            const dots = document.createElement("span");
+            dots.className = "dk-steps";
+            dots.textContent = "●".repeat(_m.steps.length);
+            div.appendChild(dots);
+          }
 
-          div.addEventListener("click", () => fireActions(nb));
+          const pageId = getCurrentPageId();
+          div.addEventListener("click", () => {
+            // Debounce: ignore lag-induced double/triple clicks on the same tile
+            const now = Date.now();
+            const ck = pageId + ":" + key;
+            if (now - (tileCooldown[ck] || 0) < TILE_COOLDOWN_MS) return;
+            tileCooldown[ck] = now;
+            div.style.opacity = "0.6";
+            setTimeout(() => { div.style.opacity = ""; }, TILE_COOLDOWN_MS);
+            fireActions(nb, ck);
+          });
         } else {
           div.classList.add("empty-tile");
           div.style.background = "#1a1a1a";
@@ -266,10 +296,22 @@
     if (isFS) calcFit();
   }
 
-  /* ── Fire Actions ──────────────────────────────────────────── */
-  function fireActions(btnCfg) {
-    const actions = btnCfg.actions || [];
+  /* ── Fire Actions (steps-aware) ────────────────────────────── */
+  function fireActions(btnCfg, stepKey) {
+    const m = (typeof OBS_DEFS !== "undefined" && OBS_DEFS.migrateButton) ? OBS_DEFS.migrateButton(btnCfg, stepKey) : btnCfg;
+    const steps = (m && m.steps && m.steps.length) ? m.steps : [{ actions: (btnCfg.actions || []) }];
+    const mode = (m && m.stepMode) || btnCfg.stepMode || "advance";
+    const skey = stepKey || ("k:" + (btnCfg.id || Math.random()));
+    let idx = stepState[skey] || 0;
+    if (idx >= steps.length) idx = 0;
+    const actions = (steps[idx] && steps[idx].actions) || [];
+    // Advance for next press (latch stays on last step)
+    if (steps.length > 1) {
+      if (mode === "latch") stepState[skey] = Math.min(idx + 1, steps.length - 1);
+      else stepState[skey] = (idx + 1) % steps.length;
+    }
     if (!actions.length) return;
+    const queued = [];
 
     actions.forEach((act) => {
       const cmd = {};
@@ -342,14 +384,43 @@
         cmd.set_scene_collection = params.name || "";
       } else if (type === "set_profile") {
         cmd.set_profile = params.name || "";
+      } else if (type === "record_chapter") {
+        cmd.record_chapter = true;
+      } else if (type === "output_start" || type === "output_stop" || type === "output_toggle") {
+        cmd[type] = params.output || "";
+      } else if (type === "set_source_transform") {
+        cmd.set_source_transform = params;
+      } else if (type === "set_filter_visibility") {
+        cmd.set_filter_visibility = params;
+      } else if (type === "adjust_volume") {
+        cmd.adjust_volume = params;
+      } else if (type === "set_audio_sync" || type === "set_audio_balance" || type === "set_audio_monitor") {
+        cmd[type] = params;
+      } else if (type === "reset_video_capture" || type === "take_screenshot") {
+        cmd[type] = params.source || "";
+      } else if (type === "media_play" || type === "media_pause" || type === "media_restart" || type === "media_stop" || type === "media_next" || type === "media_prev") {
+        cmd[type] = params.source || "";
+      } else if (type === "trigger_hotkey") {
+        cmd.trigger_hotkey = params.name || "";
+      } else if (type === "custom_command") {
+        cmd.custom_command = params;
       } else {
         cmd[type] = params;
       }
 
+      // Phase B: per-action delay → queue (bridge executes sequentially)
+      const delayMs = parseInt(act.delayMs) || 0;
       Object.keys(cmd).forEach((k) => {
-        fbDb.ref("commands").child(k).set(cmd[k]);
+        if (delayMs > 0 || actions.length > 1) {
+          queued.push({ key: k, value: cmd[k], delayMs: delayMs });
+        } else {
+          fbDb.ref("commands").child(k).set(cmd[k]);
+        }
       });
     });
+    if (queued.length) {
+      fbDb.ref("commands/queue").set(queued);
+    }
   }
 
   /* ── Feedback Highlights ───────────────────────────────────── */
@@ -382,6 +453,8 @@
 
       div.style.background = baseBg;
       div.style.color = baseColor;
+      div.style.fontWeight = nb.style?.fontWeight || "normal";
+      div.style.border = "1px solid " + (nb.style?.border || "#222");
 
       const feedbacks = nb.feedbacks || [];
       feedbacks.forEach((fb) => {
@@ -417,6 +490,33 @@
           if (src && status.sources && status.sources[src]) {
             if (status.sources[src].muted) matched = true;
           }
+        } else if (fbType === "output_active") {
+          if (params.output && status.outputs && status.outputs[params.output]) {
+            if (status.outputs[params.output].active) matched = true;
+          }
+        } else if (fbType === "transition_active") {
+          if (status.transitioning) matched = true;
+        } else if (fbType === "studio_mode_active") {
+          if (status.studioMode) matched = true;
+        } else if (fbType === "filter_enabled") {
+          if (params.source && status.filters && status.filters[params.source]) {
+            const v = status.filters[params.source][params.filter];
+            if (v) matched = true;
+          }
+        } else if (fbType === "volume_exact") {
+          if (params.source && status.volumes) {
+            const cur = parseFloat(status.volumes[params.source]);
+            if (!isNaN(cur) && Math.abs(cur - parseFloat(params.volume || 0)) < 0.6) matched = true;
+          }
+        } else if (fbType === "media_playing") {
+          if (params.source && status.media && status.media[params.source]) {
+            const st = String(status.media[params.source].state || "").toLowerCase();
+            if (st.includes("play")) matched = true;
+          }
+        } else if (fbType === "profile_active") {
+          if (params.name && norm(params.name) === norm(status.currentProfile)) matched = true;
+        } else if (fbType === "collection_active") {
+          if (params.name && norm(params.name) === norm(status.currentCollection)) matched = true;
         }
 
         if (matched) {
@@ -438,7 +538,7 @@
       const idx = parseInt(dot.dataset.idx);
       if (!isNaN(idx)) {
         currentPageIdx = idx;
-        renderGrid();
+        subscribeButtons();
         renderPageNav();
       }
     });
@@ -547,7 +647,7 @@
         saveParams();
         applyCfgToUI();
         buildPageOrder();
-        renderGrid();
+        subscribeButtons();
         renderPageNav();
         overlay.classList.add("dk-hidden");
       });

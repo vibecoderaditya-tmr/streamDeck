@@ -18,6 +18,7 @@
   let moveMode = false;
   let swapMode = false;
   let saveTimer = null;
+  let currentStepIdx = 0;
 
   /* ── Action Types ──────────────────────────────────────────── */
   const ACTION_TYPES = [
@@ -70,6 +71,20 @@
     { value: "source_visible", label: "Source Visible", hasParam: "source", paramLabel: "Source" },
     { value: "source_muted", label: "Source Muted", hasParam: "source", paramLabel: "Source" },
   ];
+
+  // Phase A: prefer shared catalogue (obs-defs.js) when loaded — keeps deck/admin in sync
+  try {
+    if (typeof OBS_DEFS !== "undefined") {
+      if (Array.isArray(OBS_DEFS.ACTIONS) && OBS_DEFS.ACTIONS.length) {
+        ACTION_TYPES.length = 0;
+        OBS_DEFS.ACTIONS.forEach(function (a) { ACTION_TYPES.push(a); });
+      }
+      if (Array.isArray(OBS_DEFS.FEEDBACKS) && OBS_DEFS.FEEDBACKS.length) {
+        FEEDBACK_TYPES.length = 0;
+        OBS_DEFS.FEEDBACKS.forEach(function (f) { FEEDBACK_TYPES.push(f); });
+      }
+    }
+  } catch (e) { /* keep built-ins */ }
 
   const COLOR_PRESETS = [
     "green", "red", "blue", "yellow", "orange", "purple", "cyan", "white",
@@ -141,37 +156,32 @@
 
   function normalizeButton(btn, key) {
     if (!btn) return btn;
+    // Phase A: migrate to steps model, expose flat actions/feedbacks for the editor
+    if (typeof OBS_DEFS !== "undefined" && OBS_DEFS.migrateButton) {
+      const m = OBS_DEFS.migrateButton(btn, key);
+      m.actions = OBS_DEFS.flatActions(m);
+      m.feedbacks = OBS_DEFS.flatFeedbacks(m);
+      return m;
+    }
     const out = { ...btn, id: btn.id || key };
-    if (!out.actions || !Array.isArray(out.actions)) {
-      out.actions = [];
-      if (btn.action) {
-        const act = { type: btn.action, params: {} };
-        if (btn.scene) act.params.scene = btn.scene;
-        else if (btn.value) act.params.scene = btn.value;
-        if (btn.source) act.params.source = btn.source;
-        out.actions.push(act);
-      }
-    }
-    if (!out.feedbacks || !Array.isArray(out.feedbacks)) {
-      out.feedbacks = [];
-      if (btn.feedback) {
-        const fb = { type: btn.feedback.type || btn.feedback, params: {}, activeColor: btn.feedback.activeColor || "green" };
-        if (btn.feedback.scene) fb.params.scene = btn.feedback.scene;
-        else if (btn.scene) fb.params.scene = btn.scene;
-        else if (btn.value) fb.params.scene = btn.value;
-        if (btn.feedback.rules && Array.isArray(btn.feedback.rules)) {
-          btn.feedback.rules.forEach((r) => {
-            out.feedbacks.push({ type: r.type || r.feedback, params: { scene: r.scene || r.value || "" }, activeColor: r.activeColor || "green" });
-          });
-        } else {
-          out.feedbacks.push(fb);
-        }
-      }
-    }
+    if (!out.actions || !Array.isArray(out.actions)) out.actions = [];
+    if (!out.feedbacks || !Array.isArray(out.feedbacks)) out.feedbacks = [];
     if (!out.style) out.style = {};
     if (!out.icon) out.icon = "";
     if (!out.label) out.label = "";
     return out;
+  }
+
+  function syncFlatToSteps(btn) {
+    // Keep new steps model in sync when editor mutates flat actions/feedbacks
+    if (!btn) return btn;
+    if (typeof OBS_DEFS !== "undefined" && OBS_DEFS.migrateButton) {
+      const m = OBS_DEFS.migrateButton(btn, btn.id);
+      m.steps[0].actions = btn.actions || [];
+      m.steps[0].feedbacks = btn.feedbacks || [];
+      btn.steps = m.steps;
+    }
+    return btn;
   }
 
   /* ── PIN ───────────────────────────────────────────────────── */
@@ -248,6 +258,14 @@
       const alive = !!status.connected && (status.heartbeat || 0) > 0 && age < 10000;
       badge.textContent = alive ? "Connected" : "Disconnected";
       badge.className = "adm-badge " + (alive ? "adm-badge-connected" : "adm-badge-disconnected");
+      // Surface bridge-reported command errors (e.g. renamed/deleted source)
+      const errEl = $("#adm-err");
+      if (errEl) {
+        const msg = (status.lastError && status.lastError.message) || status.error || "";
+        errEl.textContent = msg;
+        errEl.style.display = msg ? "inline-block" : "none";
+        errEl.title = msg ? ("Failed command: " + ((status.lastError && status.lastError.cmd) || "?")) : "";
+      }
     }
     setInterval(updateConnBadge, 2000);
 
@@ -332,6 +350,8 @@
           const nb = normalizeButton(btnCfg, key);
           div.style.background = nb.style?.bg || "#2a2a2a";
           div.style.color = nb.style?.color || "#fff";
+          div.style.fontWeight = nb.style?.fontWeight || "normal";
+          div.style.borderColor = nb.style?.border || "#333";
           if (nb.icon) {
             const icon = document.createElement("span");
             icon.className = "tile-icon";
@@ -356,6 +376,18 @@
         if (selectedKey === key) div.classList.add("selected");
 
         div.addEventListener("click", () => handleTileClick(key));
+        // Preset drag-drop onto tiles (Companion-style)
+        div.addEventListener("dragover", (e) => { e.preventDefault(); div.classList.add("selected"); });
+        div.addEventListener("dragleave", () => div.classList.remove("selected"));
+        div.addEventListener("drop", (e) => {
+          e.preventDefault();
+          try {
+            const raw = e.dataTransfer.getData("application/x-obs-preset");
+            if (!raw) return;
+            const preset = JSON.parse(raw);
+            applyPresetToKey(preset, key);
+          } catch (err) { /* ignore */ }
+        });
         inner.appendChild(div);
       }
     }
@@ -382,6 +414,7 @@
       $(".tb-swap")?.classList.remove("tb-active");
       return;
     }
+    if (selectedKey !== key) currentStepIdx = 0;
     selectedKey = key;
     renderGrid();
     updateEditor();
@@ -625,6 +658,16 @@
     $("#ed-bg")?.addEventListener("input", liveSave);
     $("#ed-color")?.addEventListener("input", liveSave);
     $("#ed-fontsize")?.addEventListener("input", liveSave);
+    $("#ed-bold")?.addEventListener("change", liveSave);
+    $("#ed-border")?.addEventListener("input", liveSave);
+    $("#ed-stepmode")?.addEventListener("change", () => {
+      const pageId = getCurrentPageId();
+      if (!pageId || !selectedKey) return;
+      const nb = getOrCreateButton(pageId, selectedKey);
+      nb.stepMode = $("#ed-stepmode").value || "advance";
+      syncFlatToSteps(nb);
+      saveButtons();
+    });
     $("#ed-add-action")?.addEventListener("click", addAction);
     $("#ed-add-feedback")?.addEventListener("click", addFeedback);
     renderIconGrid();
@@ -700,6 +743,8 @@
     assignedState.classList.remove("dk-hidden");
 
     const nb2 = normalizeButton(buttons[pageId][selectedKey], selectedKey);
+    if (!Array.isArray(nb2.steps) || !nb2.steps.length) nb2.steps = [{ actions: nb2.actions || [], feedbacks: nb2.feedbacks || [] }];
+    if (currentStepIdx >= nb2.steps.length) currentStepIdx = 0;
 
     $("#editor-pos").textContent = selectedKey;
     $("#ed-label").value = nb2.label || "";
@@ -707,11 +752,75 @@
     $("#ed-bg").value = nb2.style?.bg || "#2a2a2a";
     $("#ed-color").value = nb2.style?.color || "#ffffff";
     $("#ed-fontsize").value = nb2.style?.fontSize || 14;
+    const boldEl = $("#ed-bold");
+    if (boldEl) boldEl.value = nb2.style?.fontWeight || "normal";
+    const borderEl = $("#ed-border");
+    if (borderEl) borderEl.value = nb2.style?.border || "#444444";
+    const modeEl = $("#ed-stepmode");
+    if (modeEl) modeEl.value = nb2.stepMode || "advance";
 
-    renderActions(nb2.actions || []);
+    renderStepsBar(nb2);
+    renderActions((nb2.steps[currentStepIdx] && nb2.steps[currentStepIdx].actions) || []);
     renderFeedbacks(nb2.feedbacks || []);
     updatePreview(nb2);
     renderGrid();
+  }
+
+  function renderStepsBar(nb) {
+    const bar = $("#ed-steps-bar");
+    if (!bar) return;
+    bar.innerHTML = "";
+    const steps = nb.steps || [];
+    steps.forEach((s, i) => {
+      const b = document.createElement("button");
+      b.className = "step-btn" + (i === currentStepIdx ? " active" : "");
+      b.textContent = "Step " + (i + 1) + " (" + ((s.actions || []).length) + ")";
+      b.addEventListener("click", () => {
+        currentStepIdx = i;
+        persistSteps(nb);
+        updateEditor();
+      });
+      bar.appendChild(b);
+    });
+    const add = document.createElement("button");
+    add.className = "step-btn step-add";
+    add.textContent = "+ Step";
+    add.addEventListener("click", () => {
+      const pageId = getCurrentPageId();
+      const btn = getOrCreateButton(pageId, selectedKey);
+      const m = (typeof OBS_DEFS !== "undefined" && OBS_DEFS.migrateButton) ? OBS_DEFS.migrateButton(btn, selectedKey) : btn;
+      m.steps.push({ actions: [], feedbacks: [] });
+      btn.steps = m.steps;
+      currentStepIdx = m.steps.length - 1;
+      syncFlatToSteps(btn);
+      saveButtons();
+      updateEditor();
+    });
+    bar.appendChild(add);
+    if (steps.length > 1) {
+      const del = document.createElement("button");
+      del.className = "step-btn step-del";
+      del.textContent = "− Step";
+      del.addEventListener("click", () => {
+        const pageId = getCurrentPageId();
+        const btn = getOrCreateButton(pageId, selectedKey);
+        const m = (typeof OBS_DEFS !== "undefined" && OBS_DEFS.migrateButton) ? OBS_DEFS.migrateButton(btn, selectedKey) : btn;
+        m.steps.splice(currentStepIdx, 1);
+        if (!m.steps.length) m.steps = [{ actions: [], feedbacks: [] }];
+        btn.steps = m.steps;
+        currentStepIdx = 0;
+        syncFlatToSteps(btn);
+        saveButtons();
+        updateEditor();
+      });
+      bar.appendChild(del);
+    }
+  }
+
+  function persistSteps(nb) {
+    // Keep flat actions in sync with the visible step being edited
+    if (!nb || !Array.isArray(nb.steps)) return;
+    nb.actions = (nb.steps[currentStepIdx] && nb.steps[currentStepIdx].actions) || [];
   }
 
   function updatePreview(nb) {
@@ -719,6 +828,10 @@
     if (!preview) return;
     preview.style.background = nb.style?.bg || "#2a2a2a";
     preview.style.color = nb.style?.color || "#fff";
+    preview.style.fontWeight = nb.style?.fontWeight || "normal";
+    preview.style.borderColor = nb.style?.border || "#444444";
+    preview.style.borderWidth = "2px";
+    preview.style.borderStyle = "solid";
     const iconEl = preview.querySelector(".ed-preview-icon");
     const lblEl = preview.querySelector(".ed-preview-label");
     if (iconEl) iconEl.textContent = nb.icon || "";
@@ -778,12 +891,56 @@
         });
       }
 
+      const delay = document.createElement("input");
+      delay.type = "number";
+      delay.min = "0";
+      delay.max = "10000";
+      delay.title = "Delay before this action (ms)";
+      delay.placeholder = "ms";
+      delay.className = "action-delay";
+      delay.value = act.delayMs || 0;
+      delay.addEventListener("input", () => {
+        act.delayMs = parseInt(delay.value) || 0;
+        liveSave();
+      });
+      row.appendChild(delay);
+
+      const upBtn = document.createElement("button");
+      upBtn.className = "action-move";
+      upBtn.textContent = "↑";
+      upBtn.title = "Move up";
+      upBtn.addEventListener("click", () => {
+        if (idx > 0) {
+          const t = actions[idx - 1];
+          actions[idx - 1] = actions[idx];
+          actions[idx] = t;
+          commitStepActions(actions);
+          renderActions(actions);
+        }
+      });
+      row.appendChild(upBtn);
+
+      const dnBtn = document.createElement("button");
+      dnBtn.className = "action-move";
+      dnBtn.textContent = "↓";
+      dnBtn.title = "Move down";
+      dnBtn.addEventListener("click", () => {
+        if (idx < actions.length - 1) {
+          const t = actions[idx + 1];
+          actions[idx + 1] = actions[idx];
+          actions[idx] = t;
+          commitStepActions(actions);
+          renderActions(actions);
+        }
+      });
+      row.appendChild(dnBtn);
+
       const removeBtn = document.createElement("button");
       removeBtn.className = "action-remove";
       removeBtn.textContent = "✕";
       removeBtn.addEventListener("click", () => {
         actions.splice(idx, 1);
-        liveSave();
+        commitStepActions(actions);
         renderActions(actions);
       });
       row.appendChild(removeBtn);
@@ -792,12 +949,30 @@
     });
   }
 
+  function commitStepActions(actions) {
+    const pageId = getCurrentPageId();
+    if (!pageId || !selectedKey) return;
+    const btn = buttons[pageId] && buttons[pageId][selectedKey];
+    if (!btn) return;
+    const m = (typeof OBS_DEFS !== "undefined" && OBS_DEFS.migrateButton) ? OBS_DEFS.migrateButton(btn, selectedKey) : btn;
+    if (!m.steps[currentStepIdx]) m.steps[currentStepIdx] = { actions: [], feedbacks: [] };
+    m.steps[currentStepIdx].actions = actions;
+    btn.steps = m.steps;
+    btn.actions = actions;
+    saveButtons();
+    renderGrid();
+  }
+
   function addAction() {
     const pageId = getCurrentPageId();
     if (!pageId || !selectedKey) return;
     const nb = getOrCreateButton(pageId, selectedKey);
-    if (!nb.actions) nb.actions = [];
-    nb.actions.push({ type: "set_program_scene", params: { scene: "" } });
+    const m = (typeof OBS_DEFS !== "undefined" && OBS_DEFS.migrateButton) ? OBS_DEFS.migrateButton(nb, selectedKey) : nb;
+    if (!m.steps[currentStepIdx]) m.steps[currentStepIdx] = { actions: [], feedbacks: [] };
+    m.steps[currentStepIdx].actions.push({ type: "set_program_scene", params: { scene: "" }, delayMs: 0 });
+    nb.steps = m.steps;
+    nb.actions = m.steps[currentStepIdx].actions;
+    syncFlatToSteps(nb);
     saveButtons();
     renderActions(nb.actions);
     updatePreview(nb);
@@ -916,6 +1091,7 @@
     const nb = getOrCreateButton(pageId, selectedKey);
     if (!nb.feedbacks) nb.feedbacks = [];
     nb.feedbacks.push({ type: "scene_in_program", params: { scene: "" }, activeColor: "green" });
+    syncFlatToSteps(nb);
     saveButtons();
     renderFeedbacks(nb.feedbacks);
     updatePreview(nb);
@@ -927,13 +1103,13 @@
     if (!buttons[pageId][key]) {
       buttons[pageId][key] = {
         id: key, label: "", icon: "",
-        actions: [], feedbacks: [],
+        steps: [{ actions: [], feedbacks: [] }],
         style: { bg: "#2a2a2a", color: "#ffffff", fontSize: 14 },
       };
     }
     const nb = normalizeButton(buttons[pageId][key], key);
-    buttons[pageId][key] = nb;
-    return nb;
+    buttons[pageId][key] = syncFlatToSteps(nb);
+    return buttons[pageId][key];
   }
 
   function liveSave() {
@@ -946,7 +1122,11 @@
       bg: $("#ed-bg")?.value || "#2a2a2a",
       color: $("#ed-color")?.value || "#ffffff",
       fontSize: parseInt($("#ed-fontsize")?.value) || 14,
+      fontWeight: $("#ed-bold")?.value || "normal",
+      border: $("#ed-border")?.value || "#444444",
     };
+    if ($("#ed-stepmode")) nb.stepMode = $("#ed-stepmode").value || "advance";
+    syncFlatToSteps(nb);
     saveButtons();
     updatePreview(nb);
     renderGrid();
@@ -1089,9 +1269,12 @@
         item.className = "preset-item";
         item.draggable = true;
         item.innerHTML = `<span class="pi-icon">${preset.icon}</span><span class="pi-label">${preset.label}</span><span class="pi-type">${preset.actions[0]?.type || ""}</span>`;
+        item.addEventListener("dragstart", (e) => {
+          try { e.dataTransfer.setData("application/x-obs-preset", JSON.stringify(preset)); } catch (err) {}
+        });
         item.addEventListener("click", () => {
           if (!selectedKey || !getCurrentPageId()) {
-            alert("Select a tile first, then click a preset to apply it.");
+            alert("Select a tile first, then click a preset — or drag it onto a tile.");
             return;
           }
           applyPreset(preset);
@@ -1107,14 +1290,34 @@
   function applyPreset(preset) {
     const pageId = getCurrentPageId();
     if (!pageId || !selectedKey) return;
-    const nb = getOrCreateButton(pageId, selectedKey);
-    nb.label = preset.label;
-    nb.icon = preset.icon;
-    nb.actions = JSON.parse(JSON.stringify(preset.actions || []));
-    nb.feedbacks = JSON.parse(JSON.stringify(preset.feedbacks || []));
-    if (!nb.style || nb.style.bg === "#1a1a1a") {
-      nb.style = { bg: "#2a2a2a", color: "#ffffff", fontSize: 14 };
+    applyPresetToKey(preset, selectedKey);
+  }
+
+  function applyPresetToKey(preset, key) {
+    const pageId = getCurrentPageId();
+    if (!pageId || !key) return;
+    // Use shared catalogue when available so new presets stay in sync
+    let src = preset;
+    if (!src && typeof OBS_DEFS !== "undefined") {
+      src = (OBS_DEFS.PRESETS || []).find(function (p) { return p.label === preset; });
     }
+    if (!src) return;
+    const nb = getOrCreateButton(pageId, key);
+    nb.label = src.label || nb.label;
+    nb.icon = src.icon || nb.icon;
+    const acts = JSON.parse(JSON.stringify(src.actions || []));
+    const fbs = JSON.parse(JSON.stringify(src.feedbacks || []));
+    const m = (typeof OBS_DEFS !== "undefined" && OBS_DEFS.migrateButton) ? OBS_DEFS.migrateButton(nb, key) : nb;
+    if (!m.steps[currentStepIdx]) m.steps[currentStepIdx] = { actions: [], feedbacks: [] };
+    m.steps[currentStepIdx].actions = acts;
+    nb.steps = m.steps;
+    nb.actions = acts;
+    nb.feedbacks = fbs;
+    if (!nb.style || nb.style.bg === "#1a1a1a") {
+      nb.style = { bg: "#2a2a2a", color: "#ffffff", fontSize: 14, fontWeight: "normal", border: "#444444" };
+    }
+    selectedKey = key;
+    syncFlatToSteps(nb);
     saveButtons();
     updateEditor();
     renderGrid();

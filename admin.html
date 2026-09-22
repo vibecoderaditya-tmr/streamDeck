@@ -22,6 +22,7 @@
     <div class="admin-topbar">
       <div class="admin-brand">OBS Admin</div>
       <div class="admin-status">
+        <span id="adm-err" class="adm-badge adm-badge-error" style="display:none"></span>
         <span id="adm-conn-status" class="adm-badge adm-badge-disconnected">Disconnected</span>
         <a href="index.html" class="admin-deck-link" target="_blank">Open Deck</a>
       </div>
@@ -85,7 +86,15 @@
               <input id="ed-icon" class="ed-input" type="text" placeholder="Emoji or text" />
               <div id="ed-icon-grid" class="icon-grid"></div>
 
-              <label class="ed-label">Actions</label>
+              <label class="ed-label">Steps (multi-press, Companion-style)</label>
+              <div id="ed-steps-bar" class="steps-bar"></div>
+              <label class="ed-label">Step mode</label>
+              <select id="ed-stepmode" class="ed-input">
+                <option value="advance">Advance on each press</option>
+                <option value="latch">Latch (stay on last step)</option>
+              </select>
+
+              <label class="ed-label">Actions (this step — delay in ms, ↑↓ to reorder)</label>
               <div id="ed-actions" class="ed-actions-list"></div>
               <button id="ed-add-action" class="ed-add-btn">+ Add Action</button>
             </div>
@@ -99,6 +108,15 @@
 
               <label class="ed-label">Font Size</label>
               <input id="ed-fontsize" class="ed-input ed-num" type="number" min="8" max="48" value="14" />
+
+              <label class="ed-label">Bold</label>
+              <select id="ed-bold" class="ed-input">
+                <option value="normal">Normal</option>
+                <option value="bold">Bold</option>
+              </select>
+
+              <label class="ed-label">Border Color</label>
+              <input id="ed-border" class="ed-input ed-color" type="color" value="#444444" />
 
               <div class="ed-preview-box">
                 <div id="ed-preview" class="ed-preview-tile">
@@ -131,6 +149,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
   <script src="js/firebase-config.js"></script>
+  <script src="js/obs-defs.js"></script>
   <script src="js/admin.js"></script>
 </body>
 </html>

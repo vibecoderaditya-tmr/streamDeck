@@ -65,6 +65,13 @@ input { font-family: inherit; }
 }
 .adm-badge-connected { background: #1b5e20; color: #a5d6a7; }
 .adm-badge-disconnected { background: #5c1a1a; color: #ef9a9a; }
+.adm-badge-error { background: #5c3a00; color: #ffd54f; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dk-err-toast {
+  position: fixed; bottom: 44px; left: 50%; transform: translateX(-50%); z-index: 500;
+  background: #5c3a00; color: #ffd54f; font-size: 12px; padding: 8px 14px;
+  border: 1px solid #8a5a00; border-radius: 6px; max-width: 90vw;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 .admin-main {
   display: flex; flex: 1; overflow: hidden;
@@ -494,6 +501,24 @@ input { font-family: inherit; }
   background: #5cacee; color: #fff; border: none; border-radius: 4px;
 }
 .dk-cfg-apply:hover { background: #7bbdf5; }
+
+/* ── Phase C: steps, delays, drag-drop ──────────────────────── */
+.steps-bar { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 8px; }
+.step-btn {
+  padding: 4px 8px; font-size: 11px; font-weight: 600;
+  background: #1a1a1a; border: 1px solid #333; border-radius: 4px; color: #888;
+}
+.step-btn.active { background: #264f78; border-color: #5cacee; color: #fff; }
+.step-btn.step-add { border-style: dashed; color: #5cacee; }
+.step-btn.step-del { color: #f44336; }
+.action-delay { max-width: 64px; }
+.action-move {
+  width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+  background: none; border: 1px solid #444; border-radius: 3px; font-size: 12px; color: #aaa;
+}
+.action-move:hover { background: #264f78; color: #fff; }
+.dk-steps { position: absolute; bottom: 2px; right: 4px; font-size: 7px; color: rgba(255,255,255,0.5); letter-spacing: 1px; }
+.admin-tile.drag-over { border-color: #5cacee !important; box-shadow: 0 0 0 1px #5cacee; }
 
 /* ── Responsive ─────────────────────────────────────────────── */
 @media (max-width: 700px) {
