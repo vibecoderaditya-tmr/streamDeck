@@ -237,7 +237,9 @@
       pages = snap.val() || {};
       buildPageOrder();
       renderGrid();
-      renderPagesList();
+      // Don't rebuild the list while the user is renaming a page in it.
+      const inPages = document.activeElement && $("#pages-list")?.contains(document.activeElement);
+      if (!inPages) renderPagesList();
       renderPageNav();
       updateEditor();
     });
@@ -269,11 +271,33 @@
     }
     setInterval(updateConnBadge, 2000);
 
+    // Status arrives every ~2s (heartbeat). Rebuilding the editor on each
+    // tick destroys open dropdowns/focus — so only refresh the editor when
+    // the scene list (the only status data the editor renders) changes.
+    let lastScenesKey = "";
     fbDb.ref("status").on("value", (snap) => {
       status = snap.val() || {};
       updateConnBadge();
-      if (selectedKey) updateEditor();
+      const sk = JSON.stringify(status.scenes || []);
+      if (sk !== lastScenesKey) {
+        lastScenesKey = sk;
+        if (selectedKey) updateEditor();
+      }
     });
+  }
+
+  // True while the user is typing in or has a dropdown open inside the
+  // button editor. Callers skip DOM rebuilds in that case so open selects
+  // aren't destroyed mid-interaction (e.g. by our own save echo).
+  function editorIsInteracting() {
+    const panel = $("#editor-assigned");
+    const el = document.activeElement;
+    return !!(panel && el && panel.contains(el));
+  }
+
+  function setIfUnfocused(sel, val) {
+    const el = $(sel);
+    if (el && document.activeElement !== el) el.value = val;
   }
 
   function savePage(pageId) {
@@ -747,21 +771,30 @@
     if (currentStepIdx >= nb2.steps.length) currentStepIdx = 0;
 
     $("#editor-pos").textContent = selectedKey;
-    $("#ed-label").value = nb2.label || "";
-    $("#ed-icon").value = nb2.icon || "";
-    $("#ed-bg").value = nb2.style?.bg || "#2a2a2a";
-    $("#ed-color").value = nb2.style?.color || "#ffffff";
-    $("#ed-fontsize").value = nb2.style?.fontSize || 14;
+    // Never clobber a field the user is typing in / interacting with —
+    // Firebase echoes (own saves) + scene-list refreshes would otherwise
+    // reset focus and kill open dropdowns.
+    const interacting = editorIsInteracting();
+    setIfUnfocused("#ed-label", nb2.label || "");
+    setIfUnfocused("#ed-icon", nb2.icon || "");
+    setIfUnfocused("#ed-bg", nb2.style?.bg || "#2a2a2a");
+    setIfUnfocused("#ed-color", nb2.style?.color || "#ffffff");
+    setIfUnfocused("#ed-fontsize", nb2.style?.fontSize || 14);
     const boldEl = $("#ed-bold");
-    if (boldEl) boldEl.value = nb2.style?.fontWeight || "normal";
+    if (boldEl && document.activeElement !== boldEl) boldEl.value = nb2.style?.fontWeight || "normal";
     const borderEl = $("#ed-border");
-    if (borderEl) borderEl.value = nb2.style?.border || "#444444";
+    if (borderEl && document.activeElement !== borderEl) borderEl.value = nb2.style?.border || "#444444";
     const modeEl = $("#ed-stepmode");
-    if (modeEl) modeEl.value = nb2.stepMode || "advance";
+    if (modeEl && document.activeElement !== modeEl) modeEl.value = nb2.stepMode || "advance";
 
-    renderStepsBar(nb2);
-    renderActions((nb2.steps[currentStepIdx] && nb2.steps[currentStepIdx].actions) || []);
-    renderFeedbacks(nb2.feedbacks || []);
+    // Rebuilding these rows destroys open <select> dropdowns, so skip while
+    // the user is inside the editor. Structural edits (add/remove/change)
+    // re-render explicitly through their own handlers.
+    if (!interacting) {
+      renderStepsBar(nb2);
+      renderActions((nb2.steps[currentStepIdx] && nb2.steps[currentStepIdx].actions) || []);
+      renderFeedbacks(nb2.feedbacks || []);
+    }
     updatePreview(nb2);
     renderGrid();
   }
