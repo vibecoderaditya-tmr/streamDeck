@@ -314,109 +314,19 @@
     const queued = [];
 
     actions.forEach((act) => {
-      const cmd = {};
-      const type = act.type;
-      const params = act.params || {};
-
-      if (type === "set_program_scene") {
-        cmd.set_program_scene = params.scene || "";
-      } else if (type === "set_preview_scene") {
-        cmd.set_preview_scene = params.scene || "";
-      } else if (type === "smart_scene_switch") {
-        cmd.smart_scene_switch = params.scene || "";
-      } else if (type === "trigger_transition") {
-        cmd.trigger_transition = true;
-      } else if (type === "toggle_streaming") {
-        cmd.toggle_streaming = true;
-      } else if (type === "toggle_recording") {
-        cmd.toggle_recording = true;
-      } else if (type === "start_streaming") {
-        cmd.start_streaming = true;
-      } else if (type === "stop_streaming") {
-        cmd.stop_streaming = true;
-      } else if (type === "start_recording") {
-        cmd.start_recording = true;
-      } else if (type === "stop_recording") {
-        cmd.stop_recording = true;
-      } else if (type === "pause_recording") {
-        cmd.pause_recording = true;
-      } else if (type === "unpause_recording") {
-        cmd.unpause_recording = true;
-      } else if (type === "toggle_pause_recording") {
-        cmd.toggle_pause_recording = true;
-      } else if (type === "split_recording") {
-        cmd.split_recording = true;
-      } else if (type === "start_replay_buffer") {
-        cmd.start_replay_buffer = true;
-      } else if (type === "stop_replay_buffer") {
-        cmd.stop_replay_buffer = true;
-      } else if (type === "toggle_replay_buffer") {
-        cmd.toggle_replay_buffer = true;
-      } else if (type === "save_replay") {
-        cmd.save_replay = true;
-      } else if (type === "set_transition") {
-        cmd.set_transition = params.name || "";
-      } else if (type === "set_transition_duration") {
-        cmd.set_transition_duration = parseInt(params.duration) || 300;
-      } else if (type === "toggle_source_visibility") {
-        cmd.toggle_source_visibility = params.source || "";
-      } else if (type === "set_source_visibility") {
-        cmd.set_source_visibility = { source: params.source || "", visible: params.visible !== false };
-      } else if (type === "toggle_source_mute") {
-        cmd.toggle_source_mute = params.source || "";
-      } else if (type === "set_source_mute") {
-        cmd.set_source_mute = { source: params.source || "", muted: params.muted !== false };
-      } else if (type === "set_source_volume") {
-        cmd.set_source_volume = { source: params.source || "", volume: parseFloat(params.volume) || 0 };
-      } else if (type === "set_source_text") {
-        cmd.set_source_text = { source: params.source || "", text: params.text || "" };
-      } else if (type === "refresh_browser_source") {
-        cmd.refresh_browser_source = params.source || "";
-      } else if (type === "set_media_cursor") {
-        cmd.set_media_cursor = { source: params.source || "", cursor: parseInt(params.cursor) || 0 };
-      } else if (type === "enable_studio_mode") {
-        cmd.enable_studio_mode = true;
-      } else if (type === "disable_studio_mode") {
-        cmd.disable_studio_mode = true;
-      } else if (type === "toggle_studio_mode") {
-        cmd.toggle_studio_mode = true;
-      } else if (type === "set_scene_collection") {
-        cmd.set_scene_collection = params.name || "";
-      } else if (type === "set_profile") {
-        cmd.set_profile = params.name || "";
-      } else if (type === "record_chapter") {
-        cmd.record_chapter = true;
-      } else if (type === "output_start" || type === "output_stop" || type === "output_toggle") {
-        cmd[type] = params.output || "";
-      } else if (type === "set_source_transform") {
-        cmd.set_source_transform = params;
-      } else if (type === "set_filter_visibility") {
-        cmd.set_filter_visibility = params;
-      } else if (type === "adjust_volume") {
-        cmd.adjust_volume = params;
-      } else if (type === "set_audio_sync" || type === "set_audio_balance" || type === "set_audio_monitor") {
-        cmd[type] = params;
-      } else if (type === "reset_video_capture" || type === "take_screenshot") {
-        cmd[type] = params.source || "";
-      } else if (type === "media_play" || type === "media_pause" || type === "media_restart" || type === "media_stop" || type === "media_next" || type === "media_prev") {
-        cmd[type] = params.source || "";
-      } else if (type === "trigger_hotkey") {
-        cmd.trigger_hotkey = params.name || "";
-      } else if (type === "custom_command") {
-        cmd.custom_command = params;
-      } else {
-        cmd[type] = params;
-      }
-
-      // Phase B: per-action delay → queue (bridge executes sequentially)
+      // General solution: ONE table (OBS_DEFS.buildCommand) turns every
+      // button action into its wire command. Direct OBS requests become
+      // custom_command passthrough; LOGIC:* actions keep their legacy key
+      // for the bridge's logic handlers. No per-type code here.
+      const built = (typeof OBS_DEFS !== "undefined" && OBS_DEFS.buildCommand)
+        ? OBS_DEFS.buildCommand(act)
+        : { key: act.type, value: act.params || {} };
       const delayMs = parseInt(act.delayMs) || 0;
-      Object.keys(cmd).forEach((k) => {
-        if (delayMs > 0 || actions.length > 1) {
-          queued.push({ key: k, value: cmd[k], delayMs: delayMs });
-        } else {
-          fbDb.ref("commands").child(k).set(cmd[k]);
-        }
-      });
+      if (delayMs > 0 || actions.length > 1) {
+        queued.push({ key: built.key, value: built.value, delayMs: delayMs });
+      } else {
+        fbDb.ref("commands").child(built.key).set(built.value);
+      }
     });
     if (queued.length) {
       fbDb.ref("commands/queue").set(queued);

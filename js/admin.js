@@ -1243,7 +1243,20 @@
 
     const query = ($("#preset-search")?.value || "").toLowerCase();
 
-    Object.entries(PRESETS).forEach(([category, items]) => {
+    // Single source of truth: shared OBS_DEFS.PRESETS (flat {cat,...} list).
+    // Falls back to the legacy local PRESETS only if the catalog is missing.
+    let groups = {};
+    if (typeof OBS_DEFS !== "undefined" && Array.isArray(OBS_DEFS.PRESETS)) {
+      OBS_DEFS.PRESETS.forEach((p) => {
+        const c = p.cat || "General";
+        if (!groups[c]) groups[c] = [];
+        groups[c].push(p);
+      });
+    } else {
+      groups = PRESETS;
+    }
+
+    Object.entries(groups).forEach(([category, items]) => {
       const filtered = items.filter((item) =>
         !query || item.label.toLowerCase().includes(query) || category.toLowerCase().includes(query)
       );

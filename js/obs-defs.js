@@ -9,64 +9,110 @@
 (function (global) {
   "use strict";
 
+  // THE general solution: every action declares its OBS-WebSocket request here.
+  // req   = OBS request name, or "LOGIC:<handler>" for bridge-side logic
+  //         (read-modify-write, name→scene/item resolve, multi-call sequences).
+  // map   = {friendlyParam: "ObsField"}.
+  // num/int/bool = coerce these friendly params from strings.
+  // fixed = constant OBS fields merged into every call.
+  // settingsFrom = "rest": dump all unmapped params into this object field
+  //         (used by SetInputSettings → inputSettings).
+  // To support a brand-new OBS request tomorrow: add ONE line below. No
+  // deck.js or bridge changes needed — both sides read this table.
   const ACTIONS = [
-    { value: "set_program_scene", label: "Set Program Scene", hasParam: "scene" },
-    { value: "set_preview_scene", label: "Set Preview Scene", hasParam: "scene" },
-    { value: "smart_scene_switch", label: "Smart Scene Switch", hasParam: "scene" },
-    { value: "trigger_transition", label: "Trigger Transition", hasParam: false },
-    { value: "set_transition", label: "Set Transition", hasParam: "name" },
-    { value: "set_transition_duration", label: "Set Transition Duration (ms)", hasParam: "duration" },
-    { value: "start_streaming", label: "Start Streaming", hasParam: false },
-    { value: "stop_streaming", label: "Stop Streaming", hasParam: false },
-    { value: "toggle_streaming", label: "Toggle Streaming", hasParam: false },
-    { value: "start_recording", label: "Start Recording", hasParam: false },
-    { value: "stop_recording", label: "Stop Recording", hasParam: false },
-    { value: "toggle_recording", label: "Toggle Recording", hasParam: false },
-    { value: "pause_recording", label: "Pause Recording", hasParam: false },
-    { value: "unpause_recording", label: "Resume Recording", hasParam: false },
-    { value: "toggle_pause_recording", label: "Toggle Pause Recording", hasParam: false },
-    { value: "split_recording", label: "Split Recording", hasParam: false },
-    { value: "record_chapter", label: "Create Record Chapter", hasParam: false },
-    { value: "start_replay_buffer", label: "Start Replay Buffer", hasParam: false },
-    { value: "stop_replay_buffer", label: "Stop Replay Buffer", hasParam: false },
-    { value: "toggle_replay_buffer", label: "Toggle Replay Buffer", hasParam: false },
-    { value: "save_replay", label: "Save Replay", hasParam: false },
-    { value: "output_start", label: "Output Start", hasParam: "output" },
-    { value: "output_stop", label: "Output Stop", hasParam: "output" },
-    { value: "output_toggle", label: "Output Toggle", hasParam: "output" },
-    { value: "enable_studio_mode", label: "Enable Studio Mode", hasParam: false },
-    { value: "disable_studio_mode", label: "Disable Studio Mode", hasParam: false },
-    { value: "toggle_studio_mode", label: "Toggle Studio Mode", hasParam: false },
-    { value: "set_scene_collection", label: "Set Scene Collection", hasParam: "name" },
-    { value: "set_profile", label: "Set Profile", hasParam: "name" },
-    { value: "toggle_source_visibility", label: "Toggle Source Visibility", hasParam: "source" },
-    { value: "set_source_visibility", label: "Set Source Visibility", hasParam: "source,visible" },
-    { value: "set_source_transform", label: "Set Source Transform", hasParam: "source,x,y,scaleX,scaleY,rotation" },
-    { value: "set_filter_visibility", label: "Set Filter Visibility", hasParam: "source,filter,visible" },
-    { value: "toggle_source_mute", label: "Toggle Source Mute", hasParam: "source" },
-    { value: "set_source_mute", label: "Set Source Mute", hasParam: "source,muted" },
-    { value: "set_source_volume", label: "Set Source Volume (dB)", hasParam: "source,volume" },
-    { value: "adjust_volume", label: "Adjust Volume by dB", hasParam: "source,delta" },
-    { value: "set_audio_sync", label: "Set Audio Sync Offset (ms)", hasParam: "source,offset" },
-    { value: "set_audio_balance", label: "Set Audio Balance (0-1)", hasParam: "source,balance" },
-    { value: "set_audio_monitor", label: "Set Audio Monitor", hasParam: "source,type" },
-    { value: "set_source_text", label: "Set Source Text", hasParam: "source,text" },
-    { value: "refresh_browser_source", label: "Refresh Browser Source", hasParam: "source" },
-    { value: "reset_video_capture", label: "Reset Video Capture Device", hasParam: "source" },
-    { value: "take_screenshot", label: "Take Screenshot", hasParam: "source" },
-    { value: "media_play", label: "Media: Play", hasParam: "source" },
-    { value: "media_pause", label: "Media: Pause", hasParam: "source" },
-    { value: "media_restart", label: "Media: Restart", hasParam: "source" },
-    { value: "media_stop", label: "Media: Stop", hasParam: "source" },
-    { value: "media_next", label: "Media: Next", hasParam: "source" },
-    { value: "media_prev", label: "Media: Previous", hasParam: "source" },
-    { value: "set_media_cursor", label: "Set Media Cursor (ms)", hasParam: "source,cursor" },
-    { value: "trigger_hotkey", label: "Trigger Hotkey by Name", hasParam: "name" },
+    { value: "set_program_scene", label: "Set Program Scene", hasParam: "scene", req: "SetCurrentProgramScene", map: { scene: "sceneName" } },
+    { value: "set_preview_scene", label: "Set Preview Scene", hasParam: "scene", req: "SetCurrentPreviewScene", map: { scene: "sceneName" } },
+    { value: "smart_scene_switch", label: "Smart Scene Switch", hasParam: "scene", req: "LOGIC:smart_scene_switch" },
+    { value: "trigger_transition", label: "Trigger Transition", hasParam: false, req: "TriggerStudioModeTransition", map: {} },
+    { value: "set_transition", label: "Set Transition", hasParam: "name", req: "SetCurrentSceneTransition", map: { name: "transitionName" } },
+    { value: "set_transition_duration", label: "Set Transition Duration (ms)", hasParam: "duration", req: "SetCurrentSceneTransitionDuration", map: { duration: "transitionDuration" }, int: ["duration"] },
+    { value: "start_streaming", label: "Start Streaming", hasParam: false, req: "StartStream", map: {} },
+    { value: "stop_streaming", label: "Stop Streaming", hasParam: false, req: "StopStream", map: {} },
+    { value: "toggle_streaming", label: "Toggle Streaming", hasParam: false, req: "ToggleStream", map: {} },
+    { value: "start_recording", label: "Start Recording", hasParam: false, req: "StartRecord", map: {} },
+    { value: "stop_recording", label: "Stop Recording", hasParam: false, req: "StopRecord", map: {} },
+    { value: "toggle_recording", label: "Toggle Recording", hasParam: false, req: "ToggleRecord", map: {} },
+    { value: "pause_recording", label: "Pause Recording", hasParam: false, req: "PauseRecord", map: {} },
+    { value: "unpause_recording", label: "Resume Recording", hasParam: false, req: "ResumeRecord", map: {} },
+    { value: "toggle_pause_recording", label: "Toggle Pause Recording", hasParam: false, req: "ToggleRecordPause", map: {} },
+    { value: "split_recording", label: "Split Recording", hasParam: false, req: "SplitRecordFile", map: {} },
+    { value: "record_chapter", label: "Create Record Chapter", hasParam: false, req: "CreateRecordChapter", map: {} },
+    { value: "start_replay_buffer", label: "Start Replay Buffer", hasParam: false, req: "StartReplayBuffer", map: {} },
+    { value: "stop_replay_buffer", label: "Stop Replay Buffer", hasParam: false, req: "StopReplayBuffer", map: {} },
+    { value: "toggle_replay_buffer", label: "Toggle Replay Buffer", hasParam: false, req: "ToggleReplayBuffer", map: {} },
+    { value: "save_replay", label: "Save Replay", hasParam: false, req: "SaveReplayBuffer", map: {} },
+    { value: "output_start", label: "Output Start", hasParam: "output", req: "StartOutput", map: { output: "outputName" } },
+    { value: "output_stop", label: "Output Stop", hasParam: "output", req: "StopOutput", map: { output: "outputName" } },
+    { value: "output_toggle", label: "Output Toggle", hasParam: "output", req: "ToggleOutput", map: { output: "outputName" } },
+    { value: "enable_studio_mode", label: "Enable Studio Mode", hasParam: false, req: "SetStudioModeEnabled", map: {}, fixed: { studioModeEnabled: true } },
+    { value: "disable_studio_mode", label: "Disable Studio Mode", hasParam: false, req: "SetStudioModeEnabled", map: {}, fixed: { studioModeEnabled: false } },
+    { value: "toggle_studio_mode", label: "Toggle Studio Mode", hasParam: false, req: "LOGIC:toggle_studio_mode" },
+    { value: "set_scene_collection", label: "Set Scene Collection", hasParam: "name", req: "SetCurrentSceneCollection", map: { name: "sceneCollectionName" } },
+    { value: "set_profile", label: "Set Profile", hasParam: "name", req: "SetCurrentProfile", map: { name: "profileName" } },
+    { value: "toggle_source_visibility", label: "Toggle Source Visibility", hasParam: "source", req: "LOGIC:toggle_source_visibility" },
+    { value: "set_source_visibility", label: "Set Source Visibility", hasParam: "source,visible", req: "LOGIC:set_source_visibility" },
+    { value: "set_source_transform", label: "Set Source Transform", hasParam: "source,x,y,scaleX,scaleY,rotation", req: "LOGIC:set_source_transform" },
+    { value: "set_filter_visibility", label: "Set Filter Visibility", hasParam: "source,filter,visible", req: "SetSourceFilterEnabled", map: { source: "sourceName", filter: "filterName", visible: "filterEnabled" }, bool: ["visible"] },
+    { value: "toggle_source_mute", label: "Toggle Source Mute", hasParam: "source", req: "ToggleInputMute", map: { source: "inputName" } },
+    { value: "set_source_mute", label: "Set Source Mute", hasParam: "source,muted", req: "SetInputMute", map: { source: "inputName", muted: "inputMuted" }, bool: ["muted"] },
+    { value: "set_source_volume", label: "Set Source Volume (dB)", hasParam: "source,volume", req: "SetInputVolume", map: { source: "inputName", volume: "inputVolumeDb" }, num: ["volume"] },
+    { value: "adjust_volume", label: "Adjust Volume by dB", hasParam: "source,delta", req: "LOGIC:adjust_volume" },
+    { value: "set_audio_sync", label: "Set Audio Sync Offset (ms)", hasParam: "source,offset", req: "SetInputAudioSyncOffset", map: { source: "inputName", offset: "inputAudioSyncOffset" }, int: ["offset"] },
+    { value: "set_audio_balance", label: "Set Audio Balance (0-1)", hasParam: "source,balance", req: "SetInputAudioBalance", map: { source: "inputName", balance: "inputAudioBalance" }, num: ["balance"] },
+    { value: "set_audio_monitor", label: "Set Audio Monitor", hasParam: "source,type", req: "SetInputAudioMonitorType", map: { source: "inputName", type: "monitorType" } },
+    { value: "set_source_text", label: "Set Source Text", hasParam: "source,text", req: "SetInputSettings", map: { source: "inputName" }, settingsFrom: "rest", settingsKey: "inputSettings" },
+    { value: "refresh_browser_source", label: "Refresh Browser Source", hasParam: "source", req: "PressInputPropertiesButton", map: { source: "inputName" }, fixed: { propertyName: "refreshnocache" } },
+    { value: "reset_video_capture", label: "Reset Video Capture Device", hasParam: "source", req: "LOGIC:reset_video_capture" },
+    { value: "take_screenshot", label: "Take Screenshot", hasParam: "source", req: "LOGIC:take_screenshot" },
+    { value: "media_play", label: "Media: Play", hasParam: "source", req: "TriggerMediaInputAction", map: { source: "inputName" }, fixed: { mediaAction: "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PLAY" } },
+    { value: "media_pause", label: "Media: Pause", hasParam: "source", req: "TriggerMediaInputAction", map: { source: "inputName" }, fixed: { mediaAction: "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PAUSE" } },
+    { value: "media_restart", label: "Media: Restart", hasParam: "source", req: "TriggerMediaInputAction", map: { source: "inputName" }, fixed: { mediaAction: "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART" } },
+    { value: "media_stop", label: "Media: Stop", hasParam: "source", req: "TriggerMediaInputAction", map: { source: "inputName" }, fixed: { mediaAction: "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP" } },
+    { value: "media_next", label: "Media: Next", hasParam: "source", req: "TriggerMediaInputAction", map: { source: "inputName" }, fixed: { mediaAction: "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_NEXT" } },
+    { value: "media_prev", label: "Media: Previous", hasParam: "source", req: "TriggerMediaInputAction", map: { source: "inputName" }, fixed: { mediaAction: "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PREVIOUS" } },
+    { value: "set_media_cursor", label: "Set Media Cursor (ms)", hasParam: "source,cursor", req: "SetMediaInputCursor", map: { source: "inputName", cursor: "mediaCursor" }, int: ["cursor"] },
+    { value: "trigger_hotkey", label: "Trigger Hotkey by Name", hasParam: "name", req: "TriggerHotkeyByName", map: { name: "hotkeyName" } },
     { value: "custom_command", label: "Custom OBS-WS Command", hasParam: "requestType,requestData" },
-    { value: "start_virtual_cam", label: "Start Virtual Camera", hasParam: false },
-    { value: "stop_virtual_cam", label: "Stop Virtual Camera", hasParam: false },
-    { value: "toggle_virtual_cam", label: "Toggle Virtual Camera", hasParam: false },
+    { value: "start_virtual_cam", label: "Start Virtual Camera", hasParam: false, req: "StartVirtualCam", map: {} },
+    { value: "stop_virtual_cam", label: "Stop Virtual Camera", hasParam: false, req: "StopVirtualCam", map: {} },
+    { value: "toggle_virtual_cam", label: "Toggle Virtual Camera", hasParam: false, req: "ToggleVirtualCam", map: {} },
   ];
+
+  // Build the wire command for one button action using the table above.
+  // Returns {key, value} for Firebase /commands. LOGIC:* and custom_command
+  // pass through untouched for the bridge's logic handlers.
+  function buildCommand(act) {
+    const type = act.type;
+    const params = act.params || {};
+    if (type === "custom_command") return { key: "custom_command", value: params };
+    const def = ACTIONS.find(function (a) { return a.value === type; });
+    if (!def || !def.req || def.req.indexOf("LOGIC:") === 0) {
+      return { key: type, value: params }; // bridge logic handler / unknown: legacy path
+    }
+    const data = {};
+    Object.keys(def.fixed || {}).forEach(function (k) { data[k] = def.fixed[k]; });
+    const mapped = {};
+    Object.keys(def.map || {}).forEach(function (fp) {
+      const obsF = def.map[fp];
+      let v = params[fp];
+      if (v === undefined || v === null || v === "") return;
+      if ((def.num || []).indexOf(fp) >= 0) { v = parseFloat(v); if (isNaN(v)) return; }
+      if ((def.int || []).indexOf(fp) >= 0) { v = parseInt(v, 10); if (isNaN(v)) return; }
+      if ((def.bool || []).indexOf(fp) >= 0) {
+        v = (v === true || v === "true" || v === "1" || v === 1);
+      }
+      data[obsF] = v;
+      mapped[fp] = true;
+    });
+    if (def.settingsFrom === "rest") {
+      const rest = {};
+      Object.keys(params).forEach(function (fp) {
+        if (!mapped[fp] && params[fp] !== undefined && params[fp] !== "") rest[fp] = params[fp];
+      });
+      data[def.settingsKey || "inputSettings"] = rest;
+    }
+    return { key: "custom_command", value: { requestType: def.req, requestData: data } };
+  }
 
   const FEEDBACKS = [
     { value: "scene_in_program", label: "Scene in Program", hasParam: "scene" },
@@ -143,5 +189,5 @@
     return res;
   }
 
-  global.OBS_DEFS = { ACTIONS: ACTIONS, FEEDBACKS: FEEDBACKS, PRESETS: PRESETS, migrateButton: migrateButton, flatActions: flatActions, flatFeedbacks: flatFeedbacks };
+  global.OBS_DEFS = { ACTIONS: ACTIONS, FEEDBACKS: FEEDBACKS, PRESETS: PRESETS, migrateButton: migrateButton, flatActions: flatActions, flatFeedbacks: flatFeedbacks, buildCommand: buildCommand };
 })(typeof window !== "undefined" ? window : globalThis);
