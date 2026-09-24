@@ -232,6 +232,10 @@
 
     grid.style.gridTemplateColumns = `repeat(${numCols}, 1fr)`;
     grid.style.gridTemplateRows = `repeat(${numRows}, 1fr)`;
+    // Clear any stale fullscreen centering so the grid always stretches
+    // edge-to-edge (fluid 1fr tracks fill the width, rows fill the height).
+    grid.style.justifyContent = "";
+    grid.style.alignContent = "";
 
     for (let r = 0; r < numRows; r++) {
       for (let c = 0; c < numCols; c++) {
@@ -484,6 +488,19 @@
       isFS = !!document.fullscreenElement;
       applyCfgToUI();
       if (isFS) calcFit();
+      else renderGrid(); // drop fullscreen px sizing, back to fluid full-bleed
+    });
+    // Rotation / resize refits the fluid grid (debounced).
+    let rzT = null;
+    window.addEventListener("resize", () => {
+      clearTimeout(rzT);
+      rzT = setTimeout(() => {
+        if (isFS) calcFit();
+        else renderGrid();
+      }, 150);
+    });
+    window.addEventListener("orientationchange", () => {
+      setTimeout(() => { if (isFS) calcFit(); else renderGrid(); }, 300);
     });
   }
 
