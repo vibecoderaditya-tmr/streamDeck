@@ -538,16 +538,14 @@
     if (cfgMaxRow !== 99 && numRows > cfgMaxRow) numRows = cfgMaxRow;
     if (cfgCols > 0) numCols = cfgCols;
 
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const tileW = Math.floor(vw / numCols);
-    const tileH = Math.floor(vh / numRows);
-    const tileSize = Math.max(Math.min(tileW, tileH), 60);
-
-    grid.style.gridTemplateColumns = `repeat(${numCols}, ${tileSize}px)`;
-    grid.style.gridTemplateRows = `repeat(${numRows}, ${tileSize}px)`;
-    grid.style.justifyContent = "center";
-    grid.style.alignContent = "center";
+    // Full-bleed: stretch tracks to fill the viewport exactly (tiles become
+    // rectangles instead of squares — no side gaps by design).
+    grid.style.gridTemplateColumns = `repeat(${numCols}, 1fr)`;
+    grid.style.gridTemplateRows = `repeat(${numRows}, 1fr)`;
+    grid.style.justifyContent = "stretch";
+    grid.style.alignContent = "stretch";
+    grid.style.width = "100%";
+    grid.style.height = "100%";
   }
 
   /* ── Configure Dialog ──────────────────────────────────────── */
