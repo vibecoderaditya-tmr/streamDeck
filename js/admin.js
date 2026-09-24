@@ -154,6 +154,66 @@
     return sel;
   }
 
+  // Generic option-list dropdown (transitions, sources, ...). Options come
+  // live from bridge status; keeps any custom-typed value as "(custom)".
+  function createOptionSelect(list, currentValue, blankLabel, customPrompt, onChange) {
+    const sel = document.createElement("select");
+    sel.className = "scene-select";
+    const items = list || [];
+    const val = currentValue || "";
+
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = blankLabel;
+    sel.appendChild(blank);
+
+    items.forEach((name) => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      if (norm(name) === norm(val)) opt.selected = true;
+      sel.appendChild(opt);
+    });
+
+    if (val && !items.some((s) => norm(s) === norm(val))) {
+      const custom = document.createElement("option");
+      custom.value = val;
+      custom.textContent = val + " (custom)";
+      custom.selected = true;
+      sel.appendChild(custom);
+    }
+
+    const customOpt = document.createElement("option");
+    customOpt.value = "__custom__";
+    customOpt.textContent = "✏ Type custom...";
+    sel.appendChild(customOpt);
+
+    sel.addEventListener("change", () => {
+      if (sel.value === "__custom__") {
+        const name = prompt(customPrompt, val);
+        if (name !== null && name.trim()) {
+          onChange(name.trim());
+        } else {
+          sel.value = val;
+        }
+      } else {
+        onChange(sel.value);
+      }
+    });
+
+    return sel;
+  }
+
+  function createTransitionSelect(currentValue, onChange) {
+    return createOptionSelect(status.transitions || [], currentValue,
+      "— current transition —", "Enter transition name:", onChange);
+  }
+
+  function createSourceSelect(currentValue, onChange) {
+    return createOptionSelect(Object.keys(status.sources || {}), currentValue,
+      "— select source —", "Enter source name:", onChange);
+  }
+
   function normalizeButton(btn, key) {
     if (!btn) return btn;
     // Phase A: migrate to steps model, expose flat actions/feedbacks for the editor
@@ -909,6 +969,20 @@
               liveSave();
             });
             row.appendChild(sceneSel);
+          } else if (pf === "transition") {
+            const transSel = createTransitionSelect(act.params?.[pf] || "", (val) => {
+              act.params = act.params || {};
+              act.params[pf] = val;
+              liveSave();
+            });
+            row.appendChild(transSel);
+          } else if (pf === "source") {
+            const srcSel = createSourceSelect(act.params?.[pf] || "", (val) => {
+              act.params = act.params || {};
+              act.params[pf] = val;
+              liveSave();
+            });
+            row.appendChild(srcSel);
           } else {
             const inp = document.createElement("input");
             inp.type = "text";
@@ -1070,6 +1144,13 @@
               liveSave();
             });
             fields.appendChild(sceneSel);
+          } else if (pf === "source") {
+            const srcSel = createSourceSelect(fb.params?.[pf] || "", (val) => {
+              fb.params = fb.params || {};
+              fb.params[pf] = val;
+              liveSave();
+            });
+            fields.appendChild(srcSel);
           } else {
             const inp = document.createElement("input");
             inp.type = "text";
